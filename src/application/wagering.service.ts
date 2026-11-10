@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { UniqueConstraintViolationException } from '@mikro-orm/core';
+import { LockMode, UniqueConstraintViolationException } from '@mikro-orm/core';
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql';
 import { WagerTransaction } from '../domain/wager-transaction';
 import { fromLedgerEntry, fromTransaction, fromWallet, toTransaction, toWallet } from '../database/mappers';
@@ -27,8 +27,8 @@ export class WageringService {
     try {
       return await this.orm.em.fork().transactional((em) => this.process(em, req, hash));
     } catch (e) {
-      // Dois reenvios simultâneos: os dois passaram pelo findExisting, o banco barrou o segundo pela UNIQUE.
-      // Rodando de novo, o segundo encontra a transação do primeiro e vira reenvio (ou conflito).
+      // Mesmo id externo enviado para wallets diferentes ao mesmo tempo (locks diferentes): o banco
+      // barrou o segundo pela UNIQUE. Rodando de novo, ele encontra o primeiro e vira reenvio ou conflito.
       if (e instanceof UniqueConstraintViolationException) {
         return this.orm.em.fork().transactional((em) => this.process(em, req, hash));
       }
@@ -36,15 +36,20 @@ export class WageringService {
     }
   }
 
-  /** Lê a wallet, aplica as regras e grava transação + lançamento + saldo na mesma transação SQL. */
+  /**
+   * Trava a wallet, aplica as regras e grava transação + lançamento + saldo na mesma transação SQL.
+   * SELECT ... FOR UPDATE: quem chega depois espera o COMMIT de quem chegou antes e já lê o saldo novo.
+   * O lock é por linha (por wallet): wallets diferentes continuam em paralelo.
+   */
   private async process(em: EntityManager, req: WagerRequest, hash: string) {
+    const row = await em.findOne(Wallets, { id: req.walletId }, { lockMode: LockMode.PESSIMISTIC_WRITE });
+    if (!row) throw notFound('WALLET', req.walletId);
+
+    // Com o lock já na mão: um reenvio da mesma wallet que acabou de commitar aparece aqui.
     const existing = await em.findOne(Transactions, {
       $or: [{ idempotencyKey: req.idempotencyKey }, { providerId: req.providerId, externalTransactionId: req.externalTransactionId }],
     });
     if (existing) return this.replay(toTransaction(existing), req.idempotencyKey, hash);
-
-    const row = await em.findOne(Wallets, { id: req.walletId });
-    if (!row) throw notFound('WALLET', req.walletId);
     const wallet = toWallet(row);
     const now = new Date();
 
