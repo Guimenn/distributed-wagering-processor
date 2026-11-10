@@ -4,9 +4,10 @@ import { Migrator } from '@mikro-orm/migrations';
 import { loadConfig } from '../config';
 import { ENTITIES } from './schema';
 import { Migration001Wallets } from './migrations/Migration001Wallets';
+import { Migration002Idempotency } from './migrations/Migration002Idempotency';
 
 /** Lista explícita (sem glob): funciona igual no Bun, no Docker e nos testes. */
-const MIGRATIONS = [Migration001Wallets];
+const MIGRATIONS = [Migration001Wallets, Migration002Idempotency];
 
 export const createOrm = (clientUrl: string) =>
   MikroORM.init(

@@ -29,7 +29,8 @@ export const toTransaction = (r: TransactionRow) =>
 export const fromTransaction = (t: WagerTransaction): TransactionRow => {
   const s = t.state;
   return {
-    id: s.id, providerId: s.providerId, externalTransactionId: s.externalTransactionId, walletId: s.walletId,
+    id: s.id, providerId: s.providerId, externalTransactionId: s.externalTransactionId,
+    idempotencyKey: s.idempotencyKey, payloadHash: s.payloadHash, walletId: s.walletId,
     playerId: s.playerId, roundId: s.roundId, gameId: s.gameId, kind: s.kind, amount: amountOf(s.money),
     currency: s.money.currency, status: s.status, failureCode: s.failureCode ?? null,
     resultingBalance: s.resultingBalance ? amountOf(s.resultingBalance) : null, createdAt: s.createdAt,

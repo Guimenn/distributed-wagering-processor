@@ -25,6 +25,9 @@ export interface WagerTransactionState {
   id: string;
   providerId: string;
   externalTransactionId: string;
+  /** Chave de idempotência enviada pelo provedor + hash do payload que veio com ela. */
+  idempotencyKey: string;
+  payloadHash: string;
   walletId: string;
   playerId: string;
   roundId: string;
@@ -52,6 +55,7 @@ export class WagerTransaction {
   static opening(wallet: Wallet): WagerTransaction {
     return new WagerTransaction({
       id: Bun.randomUUIDv7(), providerId: 'internal', externalTransactionId: `opening:${wallet.id}`,
+      idempotencyKey: `opening:${wallet.id}`, payloadHash: '',
       walletId: wallet.id, playerId: wallet.playerId, roundId: 'opening', gameId: 'opening', kind: Kind.Opening,
       money: wallet.balance, status: Status.Processed, resultingBalance: wallet.balance,
       createdAt: wallet.createdAt, processedAt: wallet.createdAt,

@@ -18,6 +18,8 @@ export class TransactionRow {
   id!: string;
   providerId!: string;
   externalTransactionId!: string;
+  idempotencyKey!: string;
+  payloadHash!: string;
   walletId!: string;
   playerId!: string;
   roundId!: string;
@@ -69,6 +71,8 @@ export const Transactions = new EntitySchema<TransactionRow>({
     id: { type: 'uuid', primary: true },
     providerId: { type: 'text' },
     externalTransactionId: { type: 'text' },
+    idempotencyKey: { type: 'text' },
+    payloadHash: { type: 'text' },
     walletId: { type: 'uuid' },
     playerId: { type: 'text' },
     roundId: { type: 'text' },
