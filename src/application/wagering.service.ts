@@ -19,19 +19,25 @@ export const transactionView = (t: WagerTransaction, idempotentReplay = false) =
   };
 };
 
+/** Mensagem da fila que originou o pedido (só no caminho SQS). */
+export interface InboxRef {
+  consumer: string;
+  messageId: string;
+}
+
 @Injectable()
 export class WageringService {
   constructor(private readonly orm: MikroORM) {}
 
-  async submit(req: WagerRequest) {
+  async submit(req: WagerRequest, inbox?: InboxRef) {
     const hash = payloadHash(req);
     try {
-      return await this.orm.em.fork().transactional((em) => this.process(em, req, hash));
+      return await this.orm.em.fork().transactional((em) => this.process(em, req, hash, inbox));
     } catch (e) {
       // Mesmo id externo enviado para wallets diferentes ao mesmo tempo (locks diferentes): o banco
       // barrou o segundo pela UNIQUE. Rodando de novo, ele encontra o primeiro e vira reenvio ou conflito.
       if (e instanceof UniqueConstraintViolationException) {
-        return this.orm.em.fork().transactional((em) => this.process(em, req, hash));
+        return this.orm.em.fork().transactional((em) => this.process(em, req, hash, inbox));
       }
       throw e;
     }
@@ -42,21 +48,45 @@ export class WageringService {
    * SELECT ... FOR UPDATE: quem chega depois espera o COMMIT de quem chegou antes e já lê o saldo novo.
    * O lock é por linha (por wallet): wallets diferentes continuam em paralelo.
    */
-  private async process(em: EntityManager, req: WagerRequest, hash: string) {
+  private async process(em: EntityManager, req: WagerRequest, hash: string, inbox?: InboxRef) {
     const row = await em.findOne(Wallets, { id: req.walletId }, { lockMode: LockMode.PESSIMISTIC_WRITE });
     if (!row) throw notFound('WALLET', req.walletId);
 
     // Com o lock já na mão: um reenvio da mesma wallet que acabou de commitar aparece aqui.
-    const existing = await em.findOne(Transactions, {
-      $or: [{ idempotencyKey: req.idempotencyKey }, { providerId: req.providerId, externalTransactionId: req.externalTransactionId }],
-    });
-    if (existing) return this.replay(toTransaction(existing), req.idempotencyKey, hash);
+    // Pela fila, o mesmo messageId também é reenvio (mesmo que o payload tenha mudado: aí é 409).
+    const existing =
+      (inbox && (await this.findByInbox(em, inbox))) ??
+      (await em.findOne(Transactions, {
+        $or: [{ idempotencyKey: req.idempotencyKey }, { providerId: req.providerId, externalTransactionId: req.externalTransactionId }],
+      }));
 
-    const now = new Date();
-    const tx = WagerTransaction.create({ ...req, payloadHash: hash }, now);
-    await this.apply(em, tx, row, now);
-    em.create(Transactions, fromTransaction(tx));
-    return transactionView(tx);
+    let result;
+    if (existing) {
+      result = this.replay(toTransaction(existing), req.idempotencyKey, hash);
+    } else {
+      const now = new Date();
+      const tx = WagerTransaction.create({ ...req, payloadHash: hash }, now);
+      await this.apply(em, tx, row, now);
+      em.create(Transactions, fromTransaction(tx));
+      result = transactionView(tx);
+    }
+
+    // Inbox na mesma transação SQL: se o COMMIT acontecer, a mensagem consta como consumida junto com o efeito.
+    if (inbox) {
+      await em.execute(
+        'INSERT INTO inbox_messages VALUES (?, ?, ?, now()) ON CONFLICT DO NOTHING',
+        [inbox.consumer, inbox.messageId, result.transactionId],
+      );
+    }
+    return result;
+  }
+
+  private async findByInbox(em: EntityManager, inbox: InboxRef) {
+    const [seen] = await em.execute<{ transaction_id: string }[]>(
+      'SELECT transaction_id FROM inbox_messages WHERE consumer_name = ? AND message_id = ?',
+      [inbox.consumer, inbox.messageId],
+    );
+    return seen ? em.findOne(Transactions, { id: seen.transaction_id }) : null;
   }
 
   /** Regras + lançamento + saldo novo. Quem chama grava a própria transação (insert ou update). */
