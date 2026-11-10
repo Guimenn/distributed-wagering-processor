@@ -8,9 +8,10 @@ import { Migration002Idempotency } from './migrations/Migration002Idempotency';
 import { Migration003Reversals } from './migrations/Migration003Reversals';
 import { Migration004PendingReference } from './migrations/Migration004PendingReference';
 import { Migration005Inbox } from './migrations/Migration005Inbox';
+import { Migration006Outbox } from './migrations/Migration006Outbox';
 
 /** Lista explícita (sem glob): funciona igual no Bun, no Docker e nos testes. */
-const MIGRATIONS = [Migration001Wallets, Migration002Idempotency, Migration003Reversals, Migration004PendingReference, Migration005Inbox];
+const MIGRATIONS = [Migration001Wallets, Migration002Idempotency, Migration003Reversals, Migration004PendingReference, Migration005Inbox, Migration006Outbox];
 
 export const createOrm = (clientUrl: string) =>
   MikroORM.init(

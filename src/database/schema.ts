@@ -51,6 +51,15 @@ export class LedgerRow {
   createdAt!: Date;
 }
 
+export class OutboxRow {
+  id!: string;
+  eventType!: string;
+  aggregateId!: string;
+  payload!: object;
+  createdAt!: Date;
+  publishedAt!: Date | null;
+}
+
 const money = { type: 'decimal', precision: 20, scale: 2 } as const;
 const nullable = { nullable: true } as const;
 
@@ -113,4 +122,17 @@ export const Ledger = new EntitySchema<LedgerRow>({
   },
 });
 
-export const ENTITIES = [Wallets, Transactions, Ledger];
+export const Outbox = new EntitySchema<OutboxRow>({
+  class: OutboxRow,
+  tableName: 'outbox_messages',
+  properties: {
+    id: { type: 'uuid', primary: true },
+    eventType: { type: 'text' },
+    aggregateId: { type: 'text' },
+    payload: { type: 'json' },
+    createdAt: { type: 'datetime' },
+    publishedAt: { type: 'datetime', ...nullable },
+  },
+});
+
+export const ENTITIES = [Wallets, Transactions, Ledger, Outbox];

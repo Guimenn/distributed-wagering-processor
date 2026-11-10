@@ -1,7 +1,8 @@
 import { Money } from '../domain/money';
 import { WagerTransaction, type FailureCode, type Kind, type Status } from '../domain/wager-transaction';
 import { LedgerEntry, Wallet, type LedgerDirection } from '../domain/wallet';
-import type { LedgerRow, TransactionRow, WalletRow } from './schema';
+import type { IntegrationEvent } from '../domain/events';
+import type { LedgerRow, OutboxRow, TransactionRow, WalletRow } from './schema';
 
 /** Linha do banco <-> objeto de domínio. O domínio é sempre recriado via rehydrate. */
 const money = (amount: string, currency: string) => Money.from({ amount, currency });
@@ -55,4 +56,9 @@ export const fromLedgerEntry = (e: LedgerEntry): LedgerRow => ({
   id: e.id, walletId: e.walletId, transactionId: e.transactionId, direction: e.direction, amount: amountOf(e.money),
   currency: e.money.currency, balanceBefore: amountOf(e.balanceBefore), balanceAfter: amountOf(e.balanceAfter),
   walletVersion: e.walletVersion, createdAt: e.createdAt,
+});
+
+export const toOutboxRow = (e: IntegrationEvent): OutboxRow => ({
+  id: e.eventId, eventType: e.eventType, aggregateId: e.aggregateId, payload: e, createdAt: new Date(e.occurredAt),
+  publishedAt: null,
 });
