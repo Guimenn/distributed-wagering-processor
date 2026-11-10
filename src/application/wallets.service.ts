@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { UniqueConstraintViolationException } from '@mikro-orm/core';
+import { Injectable, Logger } from '@nestjs/common';
+import { LockMode, UniqueConstraintViolationException } from '@mikro-orm/core';
 import { MikroORM } from '@mikro-orm/postgresql';
 import type { Money } from '../domain/money';
 import { WagerTransaction } from '../domain/wager-transaction';
@@ -7,6 +7,7 @@ import { Wallet, type LedgerEntry } from '../domain/wallet';
 import { transactionEvents } from '../domain/events';
 import { fromLedgerEntry, fromTransaction, fromWallet, toLedgerEntry, toOutboxRow, toWallet } from '../database/mappers';
 import { Ledger, Outbox, Transactions, Wallets } from '../database/schema';
+import { Metrics } from '../metrics';
 import { conflict, notFound, validationError } from './errors';
 
 export const walletView = (w: Wallet) => ({ id: w.id, playerId: w.playerId, balance: w.balance.toJSON(), version: w.version });
@@ -19,7 +20,12 @@ const entryView = (e: LedgerEntry) => ({
 
 @Injectable()
 export class WalletsService {
-  constructor(private readonly orm: MikroORM) {}
+  private readonly logger = new Logger(WalletsService.name);
+
+  constructor(
+    private readonly orm: MikroORM,
+    private readonly metrics: Metrics,
+  ) {}
 
   /** Wallet + transação OPENING + lançamento inicial: tudo ou nada (uma transação SQL). */
   async create(input: { playerId: string; initialBalance: Money }) {
@@ -64,5 +70,33 @@ export class WalletsService {
       items: rows.map((r) => entryView(toLedgerEntry(r))),
       nextCursor: rows.length === limit && last ? String(last.walletVersion) : null,
     };
+  }
+
+  /**
+   * Compara o saldo gravado com o saldo recalculado do zero pelo ledger. Nunca corrige: divergência é
+   * bug, vira log de erro e métrica. Lê com a wallet travada para não ver uma transação pela metade.
+   */
+  async reconcile(walletId: string) {
+    return this.orm.em.fork().transactional(async (em) => {
+      const row = await em.findOne(Wallets, { id: walletId }, { lockMode: LockMode.PESSIMISTIC_WRITE });
+      if (!row) throw notFound('WALLET', walletId);
+      const [sum] = await em.execute<{ calculated: string; entries: number }[]>(
+        `SELECT (coalesce(sum(amount) FILTER (WHERE direction = 'CREDIT'), 0)
+               - coalesce(sum(amount) FILTER (WHERE direction = 'DEBIT'), 0))::numeric(20,2)::text AS calculated,
+                count(*)::int AS entries
+           FROM wallet_ledger_entries WHERE wallet_id = ?`,
+        [walletId],
+      );
+      const stored = toWallet(row).balance;
+      const report = {
+        walletId, storedBalance: stored.toJSON(), calculatedBalance: { amount: sum!.calculated, currency: stored.currency },
+        entries: sum!.entries, consistent: sum!.calculated === stored.toJSON().amount,
+      };
+      if (!report.consistent) {
+        this.metrics.reconciliationMismatches.inc();
+        this.logger.error({ msg: 'reconciliation mismatch', ...report });
+      }
+      return report;
+    });
   }
 }

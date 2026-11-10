@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { parseCreateWallet, uuid } from '../application/requests';
 import { WalletsService } from '../application/wallets.service';
 
@@ -14,6 +14,12 @@ export class WalletsController {
   @Get(':walletId')
   get(@Param('walletId') walletId: string) {
     return this.wallets.get(uuid(walletId, 'walletId'));
+  }
+
+  @Post(':walletId/reconciliation')
+  @HttpCode(200)
+  reconcile(@Param('walletId') walletId: string) {
+    return this.wallets.reconcile(uuid(walletId, 'walletId'));
   }
 
   @Get(':walletId/ledger')
