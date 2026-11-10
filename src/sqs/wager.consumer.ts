@@ -67,7 +67,8 @@ export class WagerConsumer implements OnApplicationBootstrap, BeforeApplicationS
         return;
       }
     }
-    await this.sqs.delete(queue, message.ReceiptHandle!);
+    // Se o ack falhar (ex.: visibility venceu e outra instância já recebeu), a mensagem volta e vira reenvio.
+    await this.sqs.delete(queue, message.ReceiptHandle!).catch((e: Error) => this.logger.warn({ msg: 'ack failed', error: e.message }));
   }
 }
 
