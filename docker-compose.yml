@@ -1,0 +1,47 @@
+# Postgres + SQS (MiniStack) + 3 réplicas da aplicação.
+# MiniStack em vez de LocalStack: a imagem atual do LocalStack exige LOCALSTACK_AUTH_TOKEN.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: wagering
+      POSTGRES_PASSWORD: wagering
+      POSTGRES_DB: wagering
+    ports: ["5433:5432"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "wagering"]
+      interval: 2s
+      retries: 30
+
+  sqs:
+    image: ministackorg/ministack:latest
+    ports: ["4566:4566"]
+
+  # Migrations uma vez, antes das réplicas (evita 3 instâncias migrando ao mesmo tempo).
+  migrate:
+    build: .
+    profiles: ["app"]
+    command: ["bun", "src/database/migrate.ts", "up"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://wagering:wagering@postgres:5432/wagering
+
+  app:
+    build: .
+    profiles: ["app"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      sqs: { condition: service_started }
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgres://wagering:wagering@postgres:5432/wagering
+      SQS_ENDPOINT: http://sqs:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    ports: ["3000-3002:3000"]
+    # SIGTERM: o consumidor espera o long poll (10 s) e o lote atual
+    stop_grace_period: 30s
+    deploy:
+      replicas: 3
