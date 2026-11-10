@@ -3,4 +3,6 @@ export const loadConfig = () => ({
   port: Number(process.env.PORT ?? 3000),
   databaseUrl: process.env.DATABASE_URL ?? 'postgres://wagering:wagering@localhost:5433/wagering',
   runMigrations: process.env.RUN_MIGRATIONS === 'true',
+  /** Liga os workers em segundo plano (os testes desligam e chamam os métodos direto). */
+  runWorkers: process.env.RUN_WORKERS !== 'false',
 });
