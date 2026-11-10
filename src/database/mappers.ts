@@ -21,6 +21,8 @@ export const toTransaction = (r: TransactionRow) =>
     kind: r.kind as Kind,
     status: r.status as Status,
     money: money(r.amount, r.currency),
+    referenceExternalTransactionId: r.referenceExternalTransactionId ?? undefined,
+    referenceTransactionId: r.referenceTransactionId ?? undefined,
     failureCode: (r.failureCode ?? undefined) as FailureCode | undefined,
     resultingBalance: r.resultingBalance == null ? undefined : money(r.resultingBalance, r.currency),
     processedAt: r.processedAt ?? undefined,
@@ -32,7 +34,8 @@ export const fromTransaction = (t: WagerTransaction): TransactionRow => {
     id: s.id, providerId: s.providerId, externalTransactionId: s.externalTransactionId,
     idempotencyKey: s.idempotencyKey, payloadHash: s.payloadHash, walletId: s.walletId,
     playerId: s.playerId, roundId: s.roundId, gameId: s.gameId, kind: s.kind, amount: amountOf(s.money),
-    currency: s.money.currency, status: s.status, failureCode: s.failureCode ?? null,
+    currency: s.money.currency, referenceExternalTransactionId: s.referenceExternalTransactionId ?? null,
+    referenceTransactionId: s.referenceTransactionId ?? null, status: s.status, failureCode: s.failureCode ?? null,
     resultingBalance: s.resultingBalance ? amountOf(s.resultingBalance) : null, createdAt: s.createdAt,
     processedAt: s.processedAt ?? null,
   };

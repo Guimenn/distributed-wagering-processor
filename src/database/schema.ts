@@ -27,6 +27,8 @@ export class TransactionRow {
   kind!: string;
   amount!: string;
   currency!: string;
+  referenceExternalTransactionId!: string | null;
+  referenceTransactionId!: string | null;
   status!: string;
   failureCode!: string | null;
   resultingBalance!: string | null;
@@ -80,6 +82,8 @@ export const Transactions = new EntitySchema<TransactionRow>({
     kind: { type: 'text' },
     amount: money,
     currency: { type: 'string', length: 3 },
+    referenceExternalTransactionId: { type: 'text', ...nullable },
+    referenceTransactionId: { type: 'uuid', ...nullable },
     status: { type: 'text' },
     failureCode: { type: 'text', ...nullable },
     resultingBalance: { ...money, ...nullable },
