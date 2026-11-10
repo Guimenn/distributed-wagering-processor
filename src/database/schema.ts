@@ -34,6 +34,8 @@ export class TransactionRow {
   resultingBalance!: string | null;
   createdAt!: Date;
   processedAt!: Date | null;
+  attempts!: number;
+  nextAttemptAt!: Date | null;
 }
 
 export class LedgerRow {
@@ -89,6 +91,8 @@ export const Transactions = new EntitySchema<TransactionRow>({
     resultingBalance: { ...money, ...nullable },
     createdAt: { type: 'datetime' },
     processedAt: { type: 'datetime', ...nullable },
+    attempts: { type: 'integer' },
+    nextAttemptAt: { type: 'datetime', ...nullable },
   },
 });
 

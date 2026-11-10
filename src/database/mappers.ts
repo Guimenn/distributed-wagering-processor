@@ -26,6 +26,7 @@ export const toTransaction = (r: TransactionRow) =>
     failureCode: (r.failureCode ?? undefined) as FailureCode | undefined,
     resultingBalance: r.resultingBalance == null ? undefined : money(r.resultingBalance, r.currency),
     processedAt: r.processedAt ?? undefined,
+    nextAttemptAt: r.nextAttemptAt ?? undefined,
   });
 
 export const fromTransaction = (t: WagerTransaction): TransactionRow => {
@@ -37,7 +38,7 @@ export const fromTransaction = (t: WagerTransaction): TransactionRow => {
     currency: s.money.currency, referenceExternalTransactionId: s.referenceExternalTransactionId ?? null,
     referenceTransactionId: s.referenceTransactionId ?? null, status: s.status, failureCode: s.failureCode ?? null,
     resultingBalance: s.resultingBalance ? amountOf(s.resultingBalance) : null, createdAt: s.createdAt,
-    processedAt: s.processedAt ?? null,
+    processedAt: s.processedAt ?? null, attempts: s.attempts, nextAttemptAt: s.nextAttemptAt ?? null,
   };
 };
 
