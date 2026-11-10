@@ -5,11 +5,13 @@ import { WageringService } from '../application/wagering.service';
 import { Status } from '../domain/wager-transaction';
 
 /**
- * 201 processada agora · 200 reenvio de uma já processada · 422 rejeitada por regra de negócio.
+ * 201 processada agora · 200 reenvio de uma já processada · 202 aceita, esperando a referência ·
+ * 422 rejeitada por regra de negócio.
  * O reenvio de uma rejeitada continua 422: o provedor decide só pelo status.
  */
 function httpStatus(r: { status: Status; idempotentReplay: boolean }): number {
   if (r.status === Status.Rejected) return 422;
+  if (r.status === Status.PendingReference) return 202;
   return r.idempotentReplay ? 200 : 201;
 }
 

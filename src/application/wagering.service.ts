@@ -3,7 +3,7 @@ import { LockMode, UniqueConstraintViolationException } from '@mikro-orm/core';
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql';
 import { Kind, Status, WagerTransaction, type Reference } from '../domain/wager-transaction';
 import { fromLedgerEntry, fromTransaction, fromWallet, toTransaction, toWallet } from '../database/mappers';
-import { Ledger, Transactions, Wallets, type TransactionRow } from '../database/schema';
+import { Ledger, Transactions, Wallets, type TransactionRow, type WalletRow } from '../database/schema';
 import { conflict, notFound } from './errors';
 import { payloadHash, type WagerRequest } from './requests';
 
@@ -13,7 +13,7 @@ export const transactionView = (t: WagerTransaction, idempotentReplay = false) =
     transactionId: s.id, providerId: s.providerId, externalTransactionId: s.externalTransactionId,
     walletId: s.walletId, playerId: s.playerId, roundId: s.roundId, gameId: s.gameId, kind: s.kind,
     money: s.money.toJSON(), referenceExternalTransactionId: s.referenceExternalTransactionId,
-    status: s.status, failureCode: s.failureCode,
+    status: s.status, failureCode: s.failureCode, nextAttemptAt: s.nextAttemptAt?.toISOString(),
     balance: s.resultingBalance?.toJSON(), createdAt: s.createdAt.toISOString(), processedAt: s.processedAt?.toISOString(),
     idempotentReplay,
   };
@@ -51,18 +51,46 @@ export class WageringService {
       $or: [{ idempotencyKey: req.idempotencyKey }, { providerId: req.providerId, externalTransactionId: req.externalTransactionId }],
     });
     if (existing) return this.replay(toTransaction(existing), req.idempotencyKey, hash);
-    const wallet = toWallet(row);
+
     const now = new Date();
-
     const tx = WagerTransaction.create({ ...req, payloadHash: hash }, now);
-    const entry = tx.applyTo(wallet, now, tx.isReversal() ? await this.findReference(em, tx) : undefined);
-
+    await this.apply(em, tx, row, now);
     em.create(Transactions, fromTransaction(tx));
+    return transactionView(tx);
+  }
+
+  /** Regras + lançamento + saldo novo. Quem chama grava a própria transação (insert ou update). */
+  private async apply(em: EntityManager, tx: WagerTransaction, walletRow: WalletRow, now: Date) {
+    const wallet = toWallet(walletRow);
+    const entry = tx.applyTo(wallet, now, tx.isReversal() ? await this.findReference(em, tx) : undefined);
     if (entry) {
       em.create(Ledger, fromLedgerEntry(entry));
-      em.assign(row, fromWallet(wallet));
+      em.assign(walletRow, fromWallet(wallet));
     }
-    return transactionView(tx);
+  }
+
+  /**
+   * Reprocessa as reversões cuja próxima tentativa já venceu. Uma transação SQL por item (locks curtos).
+   * Várias instâncias podem pegar o mesmo item: o lock da wallet serializa, e quem chega depois
+   * vê que ele já não está pendente e pula.
+   */
+  async retryPendingReferences(now = new Date()): Promise<number> {
+    const due = await this.orm.em.fork().find(
+      Transactions,
+      { status: Status.PendingReference, nextAttemptAt: { $lte: now } },
+      { orderBy: { nextAttemptAt: 'asc' }, limit: 50 },
+    );
+    for (const { id, walletId } of due) {
+      await this.orm.em.fork().transactional(async (em) => {
+        const walletRow = await em.findOneOrFail(Wallets, { id: walletId }, { lockMode: LockMode.PESSIMISTIC_WRITE });
+        const row = await em.findOneOrFail(Transactions, { id });
+        if (row.status !== Status.PendingReference || row.nextAttemptAt! > now) return;
+        const tx = toTransaction(row);
+        await this.apply(em, tx, walletRow, now);
+        em.assign(row, fromTransaction(tx));
+      });
+    }
+    return due.length;
   }
 
   /** A transação revertida (mesmo provedor) e se ela já tem uma reversão processada. */
