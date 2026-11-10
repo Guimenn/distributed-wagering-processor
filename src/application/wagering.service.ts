@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { LockMode, UniqueConstraintViolationException } from '@mikro-orm/core';
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql';
-import { WagerTransaction } from '../domain/wager-transaction';
+import { Kind, Status, WagerTransaction, type Reference } from '../domain/wager-transaction';
 import { fromLedgerEntry, fromTransaction, fromWallet, toTransaction, toWallet } from '../database/mappers';
 import { Ledger, Transactions, Wallets, type TransactionRow } from '../database/schema';
 import { conflict, notFound } from './errors';
@@ -12,7 +12,8 @@ export const transactionView = (t: WagerTransaction, idempotentReplay = false) =
   return {
     transactionId: s.id, providerId: s.providerId, externalTransactionId: s.externalTransactionId,
     walletId: s.walletId, playerId: s.playerId, roundId: s.roundId, gameId: s.gameId, kind: s.kind,
-    money: s.money.toJSON(), status: s.status, failureCode: s.failureCode,
+    money: s.money.toJSON(), referenceExternalTransactionId: s.referenceExternalTransactionId,
+    status: s.status, failureCode: s.failureCode,
     balance: s.resultingBalance?.toJSON(), createdAt: s.createdAt.toISOString(), processedAt: s.processedAt?.toISOString(),
     idempotentReplay,
   };
@@ -54,7 +55,7 @@ export class WageringService {
     const now = new Date();
 
     const tx = WagerTransaction.create({ ...req, payloadHash: hash }, now);
-    const entry = tx.applyTo(wallet, now);
+    const entry = tx.applyTo(wallet, now, tx.isReversal() ? await this.findReference(em, tx) : undefined);
 
     em.create(Transactions, fromTransaction(tx));
     if (entry) {
@@ -62,6 +63,17 @@ export class WageringService {
       em.assign(row, fromWallet(wallet));
     }
     return transactionView(tx);
+  }
+
+  /** A transação revertida (mesmo provedor) e se ela já tem uma reversão processada. */
+  private async findReference(em: EntityManager, tx: WagerTransaction): Promise<Reference> {
+    const s = tx.state;
+    const row = await em.findOne(Transactions, { providerId: s.providerId, externalTransactionId: s.referenceExternalTransactionId });
+    if (!row) return { alreadyReversed: false };
+    const reversals = await em.count(Transactions, {
+      referenceTransactionId: row.id, kind: { $in: [Kind.Refund, Kind.Rollback] }, status: Status.Processed,
+    });
+    return { tx: toTransaction(row), alreadyReversed: reversals > 0 };
   }
 
   /** Mesma chave e mesmo payload = devolve o resultado original. Qualquer diferença = 409. */

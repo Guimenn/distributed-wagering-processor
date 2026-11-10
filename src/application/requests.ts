@@ -41,7 +41,7 @@ export function parseCreateWallet(body: unknown) {
   return { playerId: text(b, 'playerId'), initialBalance: money(b.initialBalance, 'initialBalance') };
 }
 
-const SUBMITTABLE: string[] = [Kind.Bet, Kind.Win, Kind.Loss];
+const SUBMITTABLE: string[] = [Kind.Bet, Kind.Win, Kind.Loss, Kind.Refund, Kind.Rollback];
 
 /** Mesmo formato para HTTP e (mais tarde) SQS. */
 export function parseWagerRequest(body: unknown, idempotencyKey: unknown) {
@@ -53,6 +53,10 @@ export function parseWagerRequest(body: unknown, idempotencyKey: unknown) {
   if (!SUBMITTABLE.includes(kind)) throw validationError(`kind must be one of ${SUBMITTABLE.join(', ')}`);
   const m = money(b.money, 'money');
   if (!m.isPositive()) throw validationError('money must be greater than zero');
+  const reference = b.referenceExternalTransactionId === undefined ? undefined : text(b, 'referenceExternalTransactionId');
+  if ((kind === Kind.Refund || kind === Kind.Rollback) && !reference) {
+    throw validationError(`${kind} requires referenceExternalTransactionId`);
+  }
   return {
     providerId: text(b, 'providerId'),
     externalTransactionId: text(b, 'externalTransactionId'),
@@ -63,6 +67,7 @@ export function parseWagerRequest(body: unknown, idempotencyKey: unknown) {
     gameId: text(b, 'gameId'),
     kind: kind as Kind,
     money: m,
+    referenceExternalTransactionId: reference,
   };
 }
 
@@ -73,6 +78,7 @@ export type WagerRequest = ReturnType<typeof parseWagerRequest>;
  * Mesma chave + mesmo hash = reenvio; mesma chave + hash diferente = conflito.
  */
 export function payloadHash(r: WagerRequest): string {
-  const fields = [r.providerId, r.externalTransactionId, r.playerId, r.walletId, r.roundId, r.gameId, r.kind, r.money.toJSON()];
+  const fields = [r.providerId, r.externalTransactionId, r.playerId, r.walletId, r.roundId, r.gameId, r.kind, r.money.toJSON(),
+    r.referenceExternalTransactionId ?? null];
   return new Bun.CryptoHasher('sha256').update(JSON.stringify(fields)).digest('hex');
 }
