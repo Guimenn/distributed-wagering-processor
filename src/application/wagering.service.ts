@@ -2,8 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { LockMode, UniqueConstraintViolationException } from '@mikro-orm/core';
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql';
 import { Kind, Status, WagerTransaction, type Reference } from '../domain/wager-transaction';
-import { fromLedgerEntry, fromTransaction, fromWallet, toTransaction, toWallet } from '../database/mappers';
-import { Ledger, Transactions, Wallets, type TransactionRow, type WalletRow } from '../database/schema';
+import { transactionEvents } from '../domain/events';
+import { fromLedgerEntry, fromTransaction, fromWallet, toOutboxRow, toTransaction, toWallet } from '../database/mappers';
+import { Ledger, Outbox, Transactions, Wallets, type TransactionRow, type WalletRow } from '../database/schema';
 import { conflict, notFound } from './errors';
 import { payloadHash, type WagerRequest } from './requests';
 
@@ -89,7 +90,7 @@ export class WageringService {
     return seen ? em.findOne(Transactions, { id: seen.transaction_id }) : null;
   }
 
-  /** Regras + lançamento + saldo novo. Quem chama grava a própria transação (insert ou update). */
+  /** Regras + lançamento + saldo novo + eventos na outbox. Quem chama grava a própria transação (insert ou update). */
   private async apply(em: EntityManager, tx: WagerTransaction, walletRow: WalletRow, now: Date) {
     const wallet = toWallet(walletRow);
     const entry = tx.applyTo(wallet, now, tx.isReversal() ? await this.findReference(em, tx) : undefined);
@@ -97,6 +98,7 @@ export class WageringService {
       em.create(Ledger, fromLedgerEntry(entry));
       em.assign(walletRow, fromWallet(wallet));
     }
+    for (const event of transactionEvents(tx, entry)) em.create(Outbox, toOutboxRow(event));
   }
 
   /**

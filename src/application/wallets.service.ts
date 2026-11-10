@@ -4,8 +4,9 @@ import { MikroORM } from '@mikro-orm/postgresql';
 import type { Money } from '../domain/money';
 import { WagerTransaction } from '../domain/wager-transaction';
 import { Wallet, type LedgerEntry } from '../domain/wallet';
-import { fromLedgerEntry, fromTransaction, fromWallet, toLedgerEntry, toWallet } from '../database/mappers';
-import { Ledger, Transactions, Wallets } from '../database/schema';
+import { transactionEvents } from '../domain/events';
+import { fromLedgerEntry, fromTransaction, fromWallet, toLedgerEntry, toOutboxRow, toWallet } from '../database/mappers';
+import { Ledger, Outbox, Transactions, Wallets } from '../database/schema';
 import { conflict, notFound, validationError } from './errors';
 
 export const walletView = (w: Wallet) => ({ id: w.id, playerId: w.playerId, balance: w.balance.toJSON(), version: w.version });
@@ -29,7 +30,9 @@ export class WalletsService {
         if (!wallet.balance.isPositive()) return; // saldo 0: nada a lançar
         const opening = WagerTransaction.opening(wallet);
         em.create(Transactions, fromTransaction(opening));
-        em.create(Ledger, fromLedgerEntry(wallet.openingEntry(opening.id)));
+        const entry = wallet.openingEntry(opening.id);
+        em.create(Ledger, fromLedgerEntry(entry));
+        for (const event of transactionEvents(opening, entry)) em.create(Outbox, toOutboxRow(event));
       });
     } catch (e) {
       if (e instanceof UniqueConstraintViolationException) {
