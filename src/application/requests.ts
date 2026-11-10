@@ -44,7 +44,10 @@ export function parseCreateWallet(body: unknown) {
 const SUBMITTABLE: string[] = [Kind.Bet, Kind.Win, Kind.Loss];
 
 /** Mesmo formato para HTTP e (mais tarde) SQS. */
-export function parseWagerRequest(body: unknown) {
+export function parseWagerRequest(body: unknown, idempotencyKey: unknown) {
+  if (typeof idempotencyKey !== 'string' || idempotencyKey.trim() === '' || idempotencyKey.length > 300) {
+    throw validationError('Idempotency-Key is required');
+  }
   const b = object(body, 'body');
   const kind = text(b, 'kind');
   if (!SUBMITTABLE.includes(kind)) throw validationError(`kind must be one of ${SUBMITTABLE.join(', ')}`);
@@ -53,6 +56,7 @@ export function parseWagerRequest(body: unknown) {
   return {
     providerId: text(b, 'providerId'),
     externalTransactionId: text(b, 'externalTransactionId'),
+    idempotencyKey,
     playerId: text(b, 'playerId'),
     walletId: uuid(b.walletId, 'walletId'),
     roundId: text(b, 'roundId'),
@@ -63,3 +67,12 @@ export function parseWagerRequest(body: unknown) {
 }
 
 export type WagerRequest = ReturnType<typeof parseWagerRequest>;
+
+/**
+ * SHA-256 dos campos de negócio, sempre na mesma ordem (array, não objeto: a ordem é fixa).
+ * Mesma chave + mesmo hash = reenvio; mesma chave + hash diferente = conflito.
+ */
+export function payloadHash(r: WagerRequest): string {
+  const fields = [r.providerId, r.externalTransactionId, r.playerId, r.walletId, r.roundId, r.gameId, r.kind, r.money.toJSON()];
+  return new Bun.CryptoHasher('sha256').update(JSON.stringify(fields)).digest('hex');
+}
