@@ -5,6 +5,7 @@ SQS. Mantém saldo e ledger corretos mesmo com mensagens duplicadas, fora de ord
 instâncias rodando ao mesmo tempo.
 
 Decisões e limitações: [ARCHITECTURE.md](./ARCHITECTURE.md).
+Histórias de usuário, casos de uso e fluxogramas: [docs/casos-de-uso.md](./docs/casos-de-uso.md).
 
 **Stack:** Bun · TypeScript strict · NestJS · MikroORM · PostgreSQL 17 · SQS via MiniStack · Docker Compose.
 
