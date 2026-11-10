@@ -26,6 +26,7 @@ export class SqsService implements OnModuleInit {
       VisibilityTimeout: String(this.config.visibilityTimeoutSeconds),
       RedrivePolicy: JSON.stringify({ deadLetterTargetArn: Attributes!.QueueArn, maxReceiveCount: this.config.maxReceiveCount }),
     });
+    await this.create(this.config.eventsQueue, fifo);
   }
 
   async receive(queue: string, waitTimeSeconds: number) {

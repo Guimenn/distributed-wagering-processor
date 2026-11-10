@@ -11,6 +11,7 @@ export const loadConfig = () => ({
     region: process.env.AWS_REGION ?? 'us-east-1',
     transactionsQueue: process.env.SQS_TRANSACTIONS_QUEUE ?? 'wager-transactions.fifo',
     dlq: process.env.SQS_DLQ ?? 'wager-transactions-dlq.fifo',
+    eventsQueue: process.env.SQS_EVENTS_QUEUE ?? 'wagering-events.fifo',
     /** Recebimentos sem sucesso antes de a própria fila mover a mensagem para a DLQ. */
     maxReceiveCount: Number(process.env.SQS_MAX_RECEIVE_COUNT ?? 5),
     /** Quanto tempo a mensagem fica invisível depois de recebida (= espera entre tentativas). */
