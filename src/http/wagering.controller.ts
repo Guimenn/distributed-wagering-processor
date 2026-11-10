@@ -3,6 +3,7 @@ import type { Response } from 'express';
 import { parseWagerRequest, uuid } from '../application/requests';
 import { WageringService } from '../application/wagering.service';
 import { Status } from '../domain/wager-transaction';
+import { Metrics } from '../metrics';
 
 /**
  * 201 processada agora · 200 reenvio de uma já processada · 202 aceita, esperando a referência ·
@@ -17,7 +18,10 @@ function httpStatus(r: { status: Status; idempotentReplay: boolean }): number {
 
 @Controller()
 export class WageringController {
-  constructor(private readonly wagering: WageringService) {}
+  constructor(
+    private readonly wagering: WageringService,
+    private readonly metrics: Metrics,
+  ) {}
 
   @Post('wagering/transactions')
   async submit(
@@ -25,7 +29,8 @@ export class WageringController {
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.wagering.submit(parseWagerRequest(body, idempotencyKey));
+    const request = parseWagerRequest(body, idempotencyKey);
+    const result = await this.metrics.track('http', () => this.wagering.submit(request));
     res.status(httpStatus(result));
     return result;
   }

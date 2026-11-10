@@ -3,6 +3,7 @@ import { LockMode } from '@mikro-orm/core';
 import { MikroORM } from '@mikro-orm/postgresql';
 import { loadConfig } from '../config';
 import { Outbox } from '../database/schema';
+import { Metrics } from '../metrics';
 import { SqsService } from '../sqs/sqs.service';
 
 /**
@@ -21,6 +22,7 @@ export class OutboxWorker implements OnApplicationBootstrap, OnApplicationShutdo
   constructor(
     private readonly orm: MikroORM,
     private readonly sqs: SqsService,
+    private readonly metrics: Metrics,
   ) {}
 
   onApplicationBootstrap() {
@@ -43,6 +45,7 @@ export class OutboxWorker implements OnApplicationBootstrap, OnApplicationShutdo
         await this.sqs.send(this.config.sqs.eventsQueue, JSON.stringify(message.payload), message.aggregateId, message.id);
         message.publishedAt = new Date();
       }
+      this.metrics.outboxPublished.inc(pending.length);
       return pending.length;
     });
   }

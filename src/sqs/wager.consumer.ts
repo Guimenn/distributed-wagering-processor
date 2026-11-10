@@ -4,6 +4,7 @@ import { AppError, validationError } from '../application/errors';
 import { parseWagerRequest } from '../application/requests';
 import { WageringService } from '../application/wagering.service';
 import { loadConfig } from '../config';
+import { Metrics } from '../metrics';
 import { SqsService } from './sqs.service';
 
 /**
@@ -25,6 +26,7 @@ export class WagerConsumer implements OnApplicationBootstrap, BeforeApplicationS
   constructor(
     private readonly sqs: SqsService,
     private readonly wagering: WageringService,
+    private readonly metrics: Metrics,
   ) {}
 
   onApplicationBootstrap() {
@@ -56,14 +58,14 @@ export class WagerConsumer implements OnApplicationBootstrap, BeforeApplicationS
   private async handle(queue: string, message: Message) {
     try {
       const { messageId, data } = parseMessage(message.Body);
-      const result = await this.wagering.submit(parseWagerRequest(data, data.idempotencyKey), {
-        consumer: WagerConsumer.NAME,
-        messageId,
-      });
+      const request = parseWagerRequest(data, data.idempotencyKey);
+      const inbox = { consumer: WagerConsumer.NAME, messageId };
+      const result = await this.metrics.track('sqs', () => this.wagering.submit(request, inbox));
       this.logger.log({ msg: 'message processed', messageId, status: result.status, replay: result.idempotentReplay });
     } catch (e) {
       if (!(e instanceof AppError) || e.status === 400) {
-        this.logger.warn({ msg: 'message not acked, will be retried or go to DLQ', error: (e as Error).message });
+        this.metrics.sqsNotAcked.inc();
+        this.logger.warn({ msg: 'message not acked, will be retried or go to DLQ', messageId: message.MessageId, error: (e as Error).message });
         return;
       }
     }
